@@ -1,10 +1,7 @@
+import sys
 import requests
-import time
-from pprint import pprint
-
-
-with open('token_y_disk.txt', 'r') as f:
-    token_YD = f.read().strip()
+import json
+from tqdm import tqdm
 
 
 class YaUploader:
@@ -16,46 +13,25 @@ class YaUploader:
             'Authorization': f'OAuth {token_YD}'
         }
 
-    def create_folder(self):
+    def create_folder(self, path_to_file):
         """
-        Создает директорию для фото на Я.Диске.
-        Название задается пользователем.
+        Создает директорию "/vk_photo_backup" для фото на Я.Диске.
         """
         params = {'path': path_to_file}
         requests.put(self.url, params=params, headers=self.headers)
-        time.sleep(0.33)
 
-    def upload_photo(self, file_path: str, name_photo):
+    def upload_photo(self, dict_photo, path_to_file):
         """
-        Загружает фото на Я.Диск.
+        Загружает фото на Я.Диск и отображает прогресс загрузки.
         """
-        params = {
-            'path': path_to_file + name_photo,
-            'url': file_path
-        }
-        response = requests.post(self.url + 'upload/', params=params,
-                                 headers=self.headers)
-        # Здесь нужен бар загрузки, посмотреть в других библиотеках.
-        time.sleep(0.33)
-        response.raise_for_status()
-        if response.status_code == 202:
-            print('Photo upload')
-
-    def contains_photo(self, name_photo):
-        """
-        Проверяет, содержится ли фото в текущем каталоге.
-        """
-        params = {
-            'path': path_to_file,
-            'limit': '1000'
-        }
-        req = requests.get(self.url, params=params,
-                           headers=self.headers).json()
-        print('name_photo: ', name_photo)
-        for elem in req['_embedded']['items']:
-            if name_photo == elem['name']:
-                match = True
-                return match
+        for name, url in tqdm(dict_photo.items(), desc='Загрузка...'):
+            params = {
+                'path': path_to_file + name,
+                'url': url
+            }
+            requests.post(self.url + 'upload/', params=params,
+                          headers=self.headers)
+        print("\033[31m{}".format('Успешно!!!'))
 
 
 with open('token_vk_photo.txt', 'r') as f:
@@ -69,41 +45,63 @@ class VKPhoto:
         'v': '5.131'
     }
 
-    def download_photos(self, id_user=None):
+    def download_photos(self, id_user):
+        """
+        Получает url-ссылки на фото, именует фото и создает json файл.
+        """
         download_photos_params = {
             'owner_id': id_user,
             'album_id': 'profile',
             'extended': 1
         }
+
         req = requests.get(self.url_vk + 'photos.get',
                            params={**self.params,
                                    **download_photos_params}).json()
-        time.sleep(0.33)
-        req = req['response']['items']
-        # pprint(req)
-        uploader.create_folder()
+        try:
+            req = req['response']['items']
+        except KeyError:
+            print('Пользователь скрыл свои данные, укажите другой id.')
+            sys.exit()
+        path_to_file = f'/vk_id_{id_user}/'
+
+        uploader.create_folder(path_to_file)
+
+        list_json = []
+        dict_photos = {}
         for info_photo in req:
-            match = False
             name_photo = str(info_photo['likes']['count'])
-            match = uploader.contains_photo(name_photo)
-            if match:
-                name_photo = f"{name_photo}_{info_photo['date']}"
+            for name_key in dict_photos.keys():
+                if name_photo == name_key:
+                    name_photo = f"{name_photo}_{info_photo['date']}"
             url_photo = info_photo['sizes'][-1]['url']
+            temp_dict = dict_photos.fromkeys([name_photo], url_photo)
+            dict_photos.update(temp_dict)
 
-            # pprint(name_photo)
-            uploader.upload_photo(url_photo, name_photo)
+            size = info_photo['sizes'][-1]['type']
+            dict_temp_json = dict(file_name=f'{name_photo}.jpg', size=size)
+            list_json.append(dict_temp_json)
 
+        with open('file_json.json', 'w', encoding='utf-8') as file:
+            json.dump(list_json, file)
 
-def manages_functions():
-    """
-    Сделать функцию которая будет запускать весь код и предлагать пользователю
-    выбор. Например: Для сохранения фото из VK введите пожалуйста id
-    пользователя, по умолчанию будут сохранены Ваши фото.
-    Укажите токен для Я.Диска.
-    """
+        uploader.upload_photo(dict_photos, path_to_file)
+
 
 if __name__ == '__main__':
-    path_to_file = f'/vk_photo_backup/'
     user_vk = VKPhoto()
+    print(f'Для сохранения фото в Яндекс.Диск из профиля VK,\nВам потребуется'
+          f' указать токен Я.Диска и id пользователя vk.\n'
+          + "\033[3m{}".format(f'\nПримечание: Посмотреть ID можно в адресной'
+                               f' строке браузера.\nЕсли профилю присвоен'
+                               f' буквенно-цифровой адрес, то ID можно\n'
+                               f'определить так: откройте любую фотографию'
+                               f' пользователя,\nпервые цифры после слова'
+                               f' photo (XXXXXX в ссылке\n'
+                               f'https://vk.com/photoXXXXXX_YYYYYYY)'
+                               f'— это интересующий вас ID.\n'))
+    token_YD = input("\033[31m{}".format('Введите токен Яндекс.Диска:'))
     uploader = YaUploader()
-    user_vk.download_photos()
+    user_vk.download_photos(input("\033[31m{}\033[0m".format('Введите id '
+                                                             'пользователя '
+                                                             'vk:')))
