@@ -1,4 +1,3 @@
-import sys
 import requests
 import json
 from tqdm import tqdm
@@ -58,11 +57,7 @@ class VKPhoto:
         req = requests.get(self.url_vk + 'photos.get',
                            params={**self.params,
                                    **download_photos_params}).json()
-        try:
-            req = req['response']['items']
-        except KeyError:
-            print('Пользователь скрыл свои данные, укажите другой id.')
-            sys.exit()
+        req = req['response']['items']
         path_to_file = f'/vk_id_{id_user}/'
 
         uploader.create_folder(path_to_file)
